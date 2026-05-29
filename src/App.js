@@ -1,404 +1,713 @@
-import { useState, useEffect } from "react";
+// Trading Intelligence Dashboard v5
+// Tabs: Dashboard, Contracts, Portfolio, Alerts, Manage
+// Built for Supabase backend + Railway scanner
+
+import { useState, useEffect, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = "https://nkufqvyvhmfazftcsgga.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5rdWZxdnl2aG1mYXpmdGNzZ2dhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwMjEyMDQsImV4cCI6MjA5NTU5NzIwNH0.OG7aFls-h4rDnaB3rOX-kuMX8yPUB5JN8WLEnZuK-jY";
+const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_KEY || "";
 
-const DEFAULT_STOCKS = [
-  { ticker: "RDW",  name: "Redwire",           color: "#6366f1" },
-  { ticker: "RKLB", name: "Rocket Lab",         color: "#0ea5e9" },
-  { ticker: "LUNR", name: "Intuitive Machines", color: "#f59e0b" },
-  { ticker: "ASTS", name: "AST SpaceMobile",    color: "#10b981" },
-  { ticker: "SPCE", name: "Virgin Galactic",    color: "#ec4899" },
-];
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const COLORS = ["#6366f1","#0ea5e9","#f59e0b","#10b981","#ec4899","#ef4444","#8b5cf6","#14b8a6","#f97316","#06b6d4"];
+const WATCHED_STOCKS = ["RDW", "RKLB", "LUNR", "ASTS", "SPCE"];
 
-const SECTORS = ["Space","Defense","Oil & Gas","Nuclear","Infrastructure","AI & Tech","Healthcare","Mining"];
-
-const TABS = ["Dashboard","Contracts","Portfolio","Alerts","Manage"];
-
-const supabase = {
-  get: (table, query = "") => fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }).then(r => r.json()),
-  post: (table, data) => fetch(`${SUPABASE_URL}/rest/v1/${table}`, { method: "POST", headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify(data) }),
-  delete: (table, match) => fetch(`${SUPABASE_URL}/rest/v1/${table}?${match}`, { method: "DELETE", headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }),
+const SCORE_COLOR = (score) => {
+  if (score >= 80) return "#00ff88";
+  if (score >= 60) return "#ffcc00";
+  if (score >= 40) return "#ff8800";
+  return "#ff4444";
 };
 
-const SECTOR_KEYWORDS = {
-  "Space":          ["space","satellite","spacecraft","aerospace","lunar","orbital","launch"],
-  "Defense":        ["drone","unmanned","uav","uas","hypersonic","missile","defense","weapons"],
-  "Oil & Gas":      ["oil","gas","petroleum","pipeline","refinery","drilling","lng","offshore"],
-  "Nuclear":        ["nuclear","uranium","reactor","smr"],
-  "Infrastructure": ["infrastructure","bridge","highway","water","port","airport","broadband"],
-  "AI & Tech":      ["artificial intelligence","machine learning","cybersecurity","cloud","quantum","robotics"],
-  "Healthcare":     ["pharmaceutical","medical","vaccine","biotech","genomics"],
-  "Mining":         ["mining","rare earth","lithium","copper","semiconductor","critical minerals"],
+const formatDate = (iso) => {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short", day: "numeric", year: "numeric",
+  });
 };
 
-const scoreColor = s => s >= 8 ? "#ef4444" : s >= 6 ? "#f59e0b" : "#10b981";
-const impactColor = i => !i ? "#888" : i.includes("STRONG POSITIVE") ? "#10b981" : i.includes("POSITIVE") ? "#34d399" : i.includes("NEGATIVE") ? "#ef4444" : "#888";
-const daysLeft = d => { if (!d) return null; return Math.ceil((new Date(d) - new Date()) / 86400000); };
-const daysColor = d => d === null ? "#888" : d <= 3 ? "#ef4444" : d <= 7 ? "#f59e0b" : "#10b981";
-const contractMatchesSector = (contract, sector) => {
-  const text = ((contract.title || "") + " " + (contract.sectors || "") + " " + (contract.agency || "")).toLowerCase();
-  return SECTOR_KEYWORDS[sector]?.some(k => text.includes(k));
+const formatCurrency = (val) => {
+  if (!val) return "—";
+  const n = parseFloat(val);
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
+  return `$${n.toFixed(0)}`;
 };
 
-function Badge({ text, color }) {
-  return <span style={{ fontSize: 10, fontWeight: 700, color, background: color + "18", padding: "2px 7px", borderRadius: 6 }}>{text}</span>;
-}
+// ─── Styles ──────────────────────────────────────────────────────────────────
 
-function TabBar({ tabs, active, onSelect }) {
+const styles = {
+  app: {
+    minHeight: "100vh",
+    background: "#0a0e17",
+    color: "#e0e8f0",
+    fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+  },
+  header: {
+    borderBottom: "1px solid #1e2d40",
+    padding: "16px 24px",
+    display: "flex",
+    alignItems: "center",
+    gap: "16px",
+    background: "#0d1520",
+  },
+  logo: {
+    fontSize: "18px",
+    fontWeight: "700",
+    color: "#00ff88",
+    letterSpacing: "0.05em",
+  },
+  logoSub: { fontSize: "11px", color: "#4a6680", marginTop: "2px" },
+  nav: {
+    display: "flex",
+    gap: "4px",
+    padding: "12px 24px",
+    borderBottom: "1px solid #1e2d40",
+    background: "#0d1520",
+    overflowX: "auto",
+  },
+  navBtn: (active) => ({
+    padding: "8px 18px",
+    border: active ? "1px solid #00ff88" : "1px solid #1e2d40",
+    borderRadius: "4px",
+    background: active ? "rgba(0,255,136,0.08)" : "transparent",
+    color: active ? "#00ff88" : "#4a6680",
+    cursor: "pointer",
+    fontSize: "12px",
+    fontFamily: "inherit",
+    letterSpacing: "0.08em",
+    transition: "all 0.15s",
+    whiteSpace: "nowrap",
+  }),
+  page: { padding: "24px", maxWidth: "1200px", margin: "0 auto" },
+  grid: (cols) => ({
+    display: "grid",
+    gridTemplateColumns: `repeat(${cols}, 1fr)`,
+    gap: "16px",
+    marginBottom: "24px",
+  }),
+  card: {
+    background: "#0d1520",
+    border: "1px solid #1e2d40",
+    borderRadius: "6px",
+    padding: "20px",
+  },
+  cardTitle: {
+    fontSize: "11px",
+    color: "#4a6680",
+    letterSpacing: "0.12em",
+    textTransform: "uppercase",
+    marginBottom: "8px",
+  },
+  cardValue: { fontSize: "28px", fontWeight: "700", color: "#e0e8f0" },
+  cardSub: { fontSize: "11px", color: "#4a6680", marginTop: "4px" },
+  sectionTitle: {
+    fontSize: "13px",
+    color: "#00ff88",
+    letterSpacing: "0.1em",
+    textTransform: "uppercase",
+    marginBottom: "16px",
+    borderBottom: "1px solid #1e2d40",
+    paddingBottom: "8px",
+  },
+  table: { width: "100%", borderCollapse: "collapse", fontSize: "12px" },
+  th: {
+    textAlign: "left",
+    padding: "10px 12px",
+    color: "#4a6680",
+    fontSize: "11px",
+    letterSpacing: "0.08em",
+    borderBottom: "1px solid #1e2d40",
+    whiteSpace: "nowrap",
+  },
+  td: {
+    padding: "12px",
+    borderBottom: "1px solid #111827",
+    verticalAlign: "top",
+  },
+  badge: (color) => ({
+    display: "inline-block",
+    padding: "2px 8px",
+    borderRadius: "3px",
+    fontSize: "10px",
+    fontWeight: "700",
+    background: `${color}22`,
+    color: color,
+    border: `1px solid ${color}44`,
+    letterSpacing: "0.06em",
+  }),
+  scoreBar: (score) => ({
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+  }),
+  input: {
+    background: "#111827",
+    border: "1px solid #1e2d40",
+    borderRadius: "4px",
+    color: "#e0e8f0",
+    padding: "8px 12px",
+    fontSize: "12px",
+    fontFamily: "inherit",
+    width: "100%",
+    boxSizing: "border-box",
+  },
+  btn: (variant = "primary") => ({
+    padding: "10px 20px",
+    borderRadius: "4px",
+    border: variant === "primary" ? "1px solid #00ff88" : "1px solid #1e2d40",
+    background: variant === "primary" ? "rgba(0,255,136,0.1)" : "transparent",
+    color: variant === "primary" ? "#00ff88" : "#4a6680",
+    cursor: "pointer",
+    fontSize: "12px",
+    fontFamily: "inherit",
+    letterSpacing: "0.08em",
+    transition: "all 0.15s",
+  }),
+  pill: {
+    display: "inline-block",
+    padding: "2px 8px",
+    background: "#1e2d40",
+    borderRadius: "3px",
+    fontSize: "11px",
+    color: "#8ab0cc",
+    marginRight: "4px",
+    marginBottom: "4px",
+  },
+  empty: {
+    textAlign: "center",
+    color: "#2a3d50",
+    padding: "60px 20px",
+    fontSize: "13px",
+  },
+  spinner: {
+    textAlign: "center",
+    color: "#00ff88",
+    padding: "60px 20px",
+    fontSize: "12px",
+    letterSpacing: "0.1em",
+  },
+};
+
+// ─── Stat Card ────────────────────────────────────────────────────────────────
+
+function StatCard({ title, value, sub, accent }) {
   return (
-    <div style={{ display: "flex", gap: 5, overflowX: "auto", paddingBottom: 2 }}>
-      {tabs.map(t => (
-        <button key={t} onClick={() => onSelect(t)} style={{ padding: "5px 11px", borderRadius: 20, border: "0.5px solid", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap", background: active === t ? "#6366f1" : "#fff", color: active === t ? "#fff" : "#555", borderColor: active === t ? "#6366f1" : "#e5e7eb", fontWeight: active === t ? 600 : 400 }}>{t}</button>
-      ))}
+    <div style={{ ...styles.card, borderColor: accent ? `${accent}44` : "#1e2d40" }}>
+      <div style={styles.cardTitle}>{title}</div>
+      <div style={{ ...styles.cardValue, color: accent || "#e0e8f0" }}>{value}</div>
+      {sub && <div style={styles.cardSub}>{sub}</div>}
     </div>
   );
 }
 
-function ContractCard({ contract, stocks }) {
-  const [expanded, setExpanded] = useState(false);
-  const days = daysLeft(contract.deadline);
+// ─── Score Badge ──────────────────────────────────────────────────────────────
+
+function ScoreBadge({ score }) {
+  const color = SCORE_COLOR(score);
   return (
-    <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", marginBottom: 10, overflow: "hidden" }}>
-      <div style={{ padding: "0.75rem 1rem" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-            {contract.tickers?.split(",").map(t => {
-              const s = stocks.find(x => x.ticker === t.trim());
-              return <Badge key={t} text={t.trim()} color={s?.color || "#888"} />;
-            })}
-          </div>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: scoreColor(contract.score) }}>{contract.score}/10</span>
-            {days !== null && <span style={{ fontSize: 11, color: daysColor(days) }}>{days}d</span>}
-          </div>
-        </div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#111", marginBottom: 3, lineHeight: 1.4 }}>{contract.title}</div>
-        <div style={{ fontSize: 11, color: "#888", marginBottom: 5 }}>{contract.agency}</div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: impactColor(contract.stock_impact), marginBottom: 5 }}>{contract.stock_impact}</div>
-        <div style={{ fontSize: 12, color: "#555", lineHeight: 1.5, marginBottom: 8 }}>{contract.headline}</div>
-        <button onClick={() => setExpanded(!expanded)} style={{ fontSize: 12, color: "#6366f1", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-          {expanded ? "hide intel ▲" : "view intel ▼"}
-        </button>
+    <span style={styles.badge(color)}>
+      {score ?? "—"}
+    </span>
+  );
+}
+
+// ─── Dashboard Tab ────────────────────────────────────────────────────────────
+
+function DashboardTab({ contracts }) {
+  const avgScore = contracts.length
+    ? Math.round(contracts.reduce((a, c) => a + (c.score || 0), 0) / contracts.length)
+    : 0;
+  const highValue = contracts.filter((c) => (c.score || 0) >= 70);
+  const today = contracts.filter((c) => {
+    if (!c.created_at) return false;
+    const d = new Date(c.created_at);
+    const now = new Date();
+    return d.toDateString() === now.toDateString();
+  });
+
+  const stockMentions = {};
+  WATCHED_STOCKS.forEach((s) => (stockMentions[s] = 0));
+  contracts.forEach((c) => {
+    const text = `${c.likely_winner || ""} ${c.competitors || ""}`.toUpperCase();
+    WATCHED_STOCKS.forEach((s) => {
+      if (text.includes(s)) stockMentions[s]++;
+    });
+  });
+
+  const recentHigh = contracts
+    .filter((c) => (c.score || 0) >= 70)
+    .slice(0, 5);
+
+  return (
+    <div style={styles.page}>
+      <div style={{ ...styles.grid(4) }}>
+        <StatCard title="Total Contracts" value={contracts.length} sub="scanned from SAM.gov" />
+        <StatCard title="Avg AI Score" value={`${avgScore}/100`} sub="opportunity rating" accent="#00ff88" />
+        <StatCard title="High Value" value={highValue.length} sub="scored 70+" accent="#ffcc00" />
+        <StatCard title="Today" value={today.length} sub="new contracts" />
       </div>
-      {expanded && (
-        <div style={{ borderTop: "0.5px solid #f3f4f6", padding: "0.75rem 1rem", background: "#fafafa" }}>
-          {contract.why_it_matters && <div style={{ fontSize: 12, color: "#444", marginBottom: 8, lineHeight: 1.5 }}><strong>Why it matters:</strong> {contract.why_it_matters}</div>}
-          {contract.likely_winner && <div style={{ fontSize: 12, color: "#444", marginBottom: 8, lineHeight: 1.5 }}><strong>Likely winner:</strong> {contract.likely_winner}</div>}
-          {contract.competitors && <div style={{ fontSize: 12, color: "#444", marginBottom: 8 }}><strong>Competitors:</strong> {contract.competitors}</div>}
-          {contract.contract_value && contract.contract_value !== "Unknown" && <div style={{ fontSize: 12, color: "#444", marginBottom: 8 }}><strong>Value:</strong> {contract.contract_value}</div>}
-          {contract.sam_url && <a href={contract.sam_url} style={{ fontSize: 12, color: "#6366f1" }} target="_blank" rel="noreferrer">View on SAM.gov →</a>}
+
+      <div style={styles.card}>
+        <div style={styles.sectionTitle}>Watched Stocks — Contract Mentions</div>
+        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+          {WATCHED_STOCKS.map((s) => (
+            <div key={s} style={{ textAlign: "center", minWidth: "80px" }}>
+              <div style={{ fontSize: "20px", fontWeight: "700", color: stockMentions[s] > 0 ? "#00ff88" : "#2a3d50" }}>
+                {stockMentions[s]}
+              </div>
+              <div style={{ fontSize: "11px", color: "#4a6680" }}>{s}</div>
+            </div>
+          ))}
         </div>
-      )}
+      </div>
+
+      <div style={{ marginTop: "16px", ...styles.card }}>
+        <div style={styles.sectionTitle}>Top Opportunities</div>
+        {recentHigh.length === 0 ? (
+          <div style={styles.empty}>No high-score contracts yet</div>
+        ) : (
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                {["Score", "Title", "Value", "Likely Winner", "Date"].map((h) => (
+                  <th key={h} style={styles.th}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {recentHigh.map((c) => (
+                <tr key={c.id} style={{ background: "rgba(0,255,136,0.02)" }}>
+                  <td style={styles.td}><ScoreBadge score={c.score} /></td>
+                  <td style={{ ...styles.td, maxWidth: "300px", color: "#c0d8e8" }}>
+                    {c.title?.slice(0, 80)}{c.title?.length > 80 ? "…" : ""}
+                  </td>
+                  <td style={styles.td}>{formatCurrency(c.value)}</td>
+                  <td style={styles.td}>
+                    {c.likely_winner ? (
+                      <span style={styles.badge("#00aaff")}>{c.likely_winner}</span>
+                    ) : "—"}
+                  </td>
+                  <td style={{ ...styles.td, color: "#4a6680" }}>{formatDate(c.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }
 
-function Contracts({ contracts, stocks, loading }) {
-  const [tickerFilter, setTickerFilter] = useState("All");
-  const [sectorFilter, setSectorFilter] = useState("All");
-  const [sortBy, setSortBy] = useState("score");
-  const [minScore, setMinScore] = useState(0);
-  const [impactFilter, setImpactFilter] = useState("All");
-  const [showFilters, setShowFilters] = useState(false);
+// ─── Contracts Tab ────────────────────────────────────────────────────────────
 
-  let filtered = contracts;
-  if (tickerFilter !== "All") filtered = filtered.filter(c => c.tickers?.includes(tickerFilter));
-  if (sectorFilter !== "All") filtered = filtered.filter(c => contractMatchesSector(c, sectorFilter));
-  if (minScore > 0) filtered = filtered.filter(c => c.score >= minScore);
-  if (impactFilter !== "All") filtered = filtered.filter(c => c.stock_impact?.includes(impactFilter));
-  filtered = [...filtered].sort((a, b) => {
-    if (sortBy === "score") return b.score - a.score;
-    if (sortBy === "deadline") return new Date(a.deadline || 0) - new Date(b.deadline || 0);
-    if (sortBy === "newest") return new Date(b.created_at) - new Date(a.created_at);
-    return 0;
+function ContractsTab({ contracts, loading }) {
+  const [search, setSearch] = useState("");
+  const [minScore, setMinScore] = useState(0);
+
+  const filtered = contracts.filter((c) => {
+    const matchSearch =
+      !search ||
+      (c.title || "").toLowerCase().includes(search.toLowerCase()) ||
+      (c.likely_winner || "").toLowerCase().includes(search.toLowerCase()) ||
+      (c.agency || "").toLowerCase().includes(search.toLowerCase());
+    const matchScore = (c.score || 0) >= minScore;
+    return matchSearch && matchScore;
   });
 
   return (
-    <div style={{ padding: "1rem" }}>
-      <div style={{ display: "flex", gap: 5, overflowX: "auto", paddingBottom: 8, marginBottom: 8 }}>
-        {["All", ...stocks.map(s => s.ticker)].map(t => (
-          <button key={t} onClick={() => setTickerFilter(t)} style={{ padding: "4px 10px", borderRadius: 20, border: "0.5px solid", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap", background: tickerFilter === t ? "#111" : "#fff", color: tickerFilter === t ? "#fff" : "#555", borderColor: tickerFilter === t ? "#111" : "#e5e7eb" }}>{t}</button>
+    <div style={styles.page}>
+      <div style={{ display: "flex", gap: "12px", marginBottom: "20px", flexWrap: "wrap" }}>
+        <input
+          style={{ ...styles.input, maxWidth: "320px" }}
+          placeholder="Search title, winner, agency..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select
+          style={{ ...styles.input, maxWidth: "160px" }}
+          value={minScore}
+          onChange={(e) => setMinScore(Number(e.target.value))}
+        >
+          <option value={0}>All Scores</option>
+          <option value={50}>50+ Score</option>
+          <option value={70}>70+ Score</option>
+          <option value={80}>80+ Score</option>
+        </select>
+        <div style={{ color: "#4a6680", fontSize: "12px", alignSelf: "center" }}>
+          {filtered.length} of {contracts.length} contracts
+        </div>
+      </div>
+
+      <div style={styles.card}>
+        {loading ? (
+          <div style={styles.spinner}>LOADING CONTRACTS...</div>
+        ) : filtered.length === 0 ? (
+          <div style={styles.empty}>No contracts match your filters</div>
+        ) : (
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                {["Score", "Title", "Agency", "Value", "Likely Winner", "Competitors", "Date"].map((h) => (
+                  <th key={h} style={styles.th}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c) => (
+                <tr key={c.id} style={{ transition: "background 0.1s" }}>
+                  <td style={styles.td}><ScoreBadge score={c.score} /></td>
+                  <td style={{ ...styles.td, maxWidth: "260px" }}>
+                    <div style={{ color: "#c0d8e8", marginBottom: "4px" }}>
+                      {c.title?.slice(0, 70)}{c.title?.length > 70 ? "…" : ""}
+                    </div>
+                    {c.notice_id && (
+                      <div style={{ fontSize: "10px", color: "#2a3d50" }}>{c.notice_id}</div>
+                    )}
+                  </td>
+                  <td style={{ ...styles.td, color: "#8ab0cc", fontSize: "11px" }}>
+                    {c.agency?.slice(0, 40)}
+                  </td>
+                  <td style={{ ...styles.td, color: "#ffcc00" }}>{formatCurrency(c.value)}</td>
+                  <td style={styles.td}>
+                    {c.likely_winner ? (
+                      <span style={styles.badge("#00aaff")}>{c.likely_winner}</span>
+                    ) : "—"}
+                  </td>
+                  <td style={{ ...styles.td, maxWidth: "180px" }}>
+                    {c.competitors
+                      ? c.competitors.split(",").map((t, i) => (
+                          <span key={i} style={styles.pill}>{t.trim()}</span>
+                        ))
+                      : "—"}
+                  </td>
+                  <td style={{ ...styles.td, color: "#4a6680", fontSize: "11px" }}>
+                    {formatDate(c.created_at)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Portfolio Tab ────────────────────────────────────────────────────────────
+
+function PortfolioTab({ contracts }) {
+  const stockData = WATCHED_STOCKS.map((symbol) => {
+    const related = contracts.filter((c) => {
+      const text = `${c.likely_winner || ""} ${c.competitors || ""}`.toUpperCase();
+      return text.includes(symbol);
+    });
+    const avgScore = related.length
+      ? Math.round(related.reduce((a, c) => a + (c.score || 0), 0) / related.length)
+      : 0;
+    const highConf = related.filter((c) => (c.score || 0) >= 70);
+    return { symbol, related, avgScore, highConf };
+  });
+
+  return (
+    <div style={styles.page}>
+      <div style={{ ...styles.grid(1), gridTemplateColumns: "1fr" }}>
+        {stockData.map(({ symbol, related, avgScore, highConf }) => (
+          <div key={symbol} style={styles.card}>
+            <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "16px" }}>
+              <div style={{ fontSize: "22px", fontWeight: "700", color: "#00ff88", minWidth: "60px" }}>
+                {symbol}
+              </div>
+              <div>
+                <div style={{ fontSize: "12px", color: "#4a6680" }}>
+                  {related.length} contract{related.length !== 1 ? "s" : ""} found
+                  {" · "}
+                  {highConf.length} high-confidence
+                </div>
+                <div style={{ display: "flex", gap: "8px", marginTop: "4px", flexWrap: "wrap" }}>
+                  <span style={styles.badge(SCORE_COLOR(avgScore))}>Avg Score: {avgScore}</span>
+                  {highConf.length > 0 && (
+                    <span style={styles.badge("#00ff88")}>🔥 {highConf.length} HOT</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {related.length === 0 ? (
+              <div style={{ color: "#2a3d50", fontSize: "12px" }}>
+                No contracts mention {symbol} yet. Scanner is watching.
+              </div>
+            ) : (
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    {["Score", "Title", "Value", "Role", "Date"].map((h) => (
+                      <th key={h} style={styles.th}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {related.slice(0, 5).map((c) => {
+                    const isWinner = (c.likely_winner || "").toUpperCase().includes(symbol);
+                    return (
+                      <tr key={c.id}>
+                        <td style={styles.td}><ScoreBadge score={c.score} /></td>
+                        <td style={{ ...styles.td, maxWidth: "300px", color: "#c0d8e8" }}>
+                          {c.title?.slice(0, 70)}{c.title?.length > 70 ? "…" : ""}
+                        </td>
+                        <td style={{ ...styles.td, color: "#ffcc00" }}>{formatCurrency(c.value)}</td>
+                        <td style={styles.td}>
+                          <span style={styles.badge(isWinner ? "#00ff88" : "#ff8800")}>
+                            {isWinner ? "LIKELY WINNER" : "COMPETITOR"}
+                          </span>
+                        </td>
+                        <td style={{ ...styles.td, color: "#4a6680", fontSize: "11px" }}>
+                          {formatDate(c.created_at)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
         ))}
       </div>
-      <button onClick={() => setShowFilters(!showFilters)} style={{ width: "100%", padding: "8px", borderRadius: 10, border: "0.5px solid #e5e7eb", background: showFilters ? "#f3f4f6" : "#fff", fontSize: 12, color: "#555", cursor: "pointer", marginBottom: 10, textAlign: "left" }}>
-        {showFilters ? "▲" : "▼"} filters & sort {(sectorFilter !== "All" || minScore > 0 || impactFilter !== "All" || sortBy !== "score") ? "●" : ""}
-      </button>
-      {showFilters && (
-        <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", padding: "0.75rem 1rem", marginBottom: 12 }}>
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>sort by</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              {[["score","Score"],["deadline","Deadline"],["newest","Newest"]].map(([val, label]) => (
-                <button key={val} onClick={() => setSortBy(val)} style={{ padding: "4px 10px", borderRadius: 8, border: "0.5px solid", fontSize: 11, cursor: "pointer", background: sortBy === val ? "#6366f1" : "#fff", color: sortBy === val ? "#fff" : "#555", borderColor: sortBy === val ? "#6366f1" : "#e5e7eb" }}>{label}</button>
-              ))}
-            </div>
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>sector</div>
-            <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-              {["All", ...SECTORS].map(s => (
-                <button key={s} onClick={() => setSectorFilter(s)} style={{ padding: "4px 8px", borderRadius: 8, border: "0.5px solid", fontSize: 10, cursor: "pointer", background: sectorFilter === s ? "#0ea5e9" : "#fff", color: sectorFilter === s ? "#fff" : "#555", borderColor: sectorFilter === s ? "#0ea5e9" : "#e5e7eb" }}>{s}</button>
-              ))}
-            </div>
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>min score: <strong>{minScore}+</strong></div>
-            <input type="range" min="0" max="9" step="1" value={minScore} onChange={e => setMinScore(+e.target.value)} style={{ width: "100%" }} />
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#aaa" }}><span>All</span><span>9+</span></div>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>impact</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              {[["All","All"],["POSITIVE","Positive"],["NEGATIVE","Negative"]].map(([val, label]) => (
-                <button key={val} onClick={() => setImpactFilter(val)} style={{ padding: "4px 10px", borderRadius: 8, border: "0.5px solid", fontSize: 11, cursor: "pointer", background: impactFilter === val ? "#10b981" : "#fff", color: impactFilter === val ? "#fff" : "#555", borderColor: impactFilter === val ? "#10b981" : "#e5e7eb" }}>{label}</button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-      <div style={{ fontSize: 11, color: "#888", marginBottom: 8 }}>{filtered.length} contract{filtered.length !== 1 ? "s" : ""}</div>
-      {loading && <div style={{ fontSize: 13, color: "#888", textAlign: "center", padding: "2rem" }}>Loading...</div>}
-      {!loading && filtered.length === 0 && (
-        <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", padding: "2rem", textAlign: "center" }}>
-          <div style={{ fontSize: 13, color: "#888" }}>No contracts match your filters. Scanner runs every 90 min during business hours (7am–7pm CST).</div>
-        </div>
-      )}
-      {filtered.map((c, i) => <ContractCard key={i} contract={c} stocks={stocks} />)}
     </div>
   );
 }
 
-function Portfolio() {
-  const [positions, setPositions] = useState([
-    { ticker: "RKLB", shares: 100, entry: 12.50, current: 18.20 },
-    { ticker: "LUNR", shares: 200, entry: 8.00,  current: 6.40 },
-    { ticker: "ASTS", shares: 50,  entry: 22.00, current: 31.50 },
-  ]);
-  const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ ticker: "", shares: "", entry: "", current: "" });
-  const totalValue = positions.reduce((s, p) => s + p.shares * p.current, 0);
-  const totalCost  = positions.reduce((s, p) => s + p.shares * p.entry, 0);
-  const totalPnL   = totalValue - totalCost;
-  const totalPct   = ((totalPnL / totalCost) * 100).toFixed(1);
-  const addPosition = () => {
-    if (!form.ticker || !form.shares || !form.entry || !form.current) return;
-    setPositions([...positions, { ticker: form.ticker.toUpperCase(), shares: +form.shares, entry: +form.entry, current: +form.current }]);
-    setForm({ ticker: "", shares: "", entry: "", current: "" });
-    setAdding(false);
-  };
+// ─── Alerts Tab ───────────────────────────────────────────────────────────────
+
+function AlertsTab({ contracts }) {
+  const alerts = contracts
+    .filter((c) => (c.score || 0) >= 70)
+    .slice(0, 20)
+    .map((c) => ({
+      ...c,
+      alertType: (c.score || 0) >= 85 ? "CRITICAL" : "HIGH",
+    }));
+
   return (
-    <div style={{ padding: "1rem" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: "1rem" }}>
-        <div style={{ background: "#f8f9fa", borderRadius: 12, padding: "0.75rem 1rem", border: "0.5px solid #e5e7eb" }}>
-          <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>total value</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "#111" }}>${totalValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+    <div style={styles.page}>
+      <div style={{ ...styles.card, marginBottom: "16px" }}>
+        <div style={styles.sectionTitle}>Alert Rules</div>
+        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+          <span style={styles.badge("#00ff88")}>Score ≥ 70 → Email Alert</span>
+          <span style={styles.badge("#ffcc00")}>Watched Stock Mention → Highlighted</span>
+          <span style={styles.badge("#ff4444")}>Score ≥ 85 → CRITICAL</span>
         </div>
-        <div style={{ background: "#f8f9fa", borderRadius: 12, padding: "0.75rem 1rem", border: "0.5px solid #e5e7eb" }}>
-          <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>total p&l</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: totalPnL >= 0 ? "#10b981" : "#ef4444" }}>{totalPnL >= 0 ? "+" : ""}${totalPnL.toFixed(2)} ({totalPct}%)</div>
+        <div style={{ marginTop: "12px", fontSize: "11px", color: "#4a6680" }}>
+          Gmail alerts are sent automatically by the Railway scanner. Showing last 20 alert-worthy contracts.
         </div>
       </div>
-      {positions.map((p, i) => {
-        const pnl = (p.current - p.entry) * p.shares;
-        const pct = (((p.current - p.entry) / p.entry) * 100).toFixed(1);
-        return (
-          <div key={i} style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", padding: "0.75rem 1rem", marginBottom: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontWeight: 600, fontSize: 14 }}>{p.ticker}</span>
-                <span style={{ fontSize: 11, color: "#888" }}>{p.shares} shares</span>
-              </div>
-              <button onClick={() => setPositions(positions.filter((_, idx) => idx !== i))} style={{ background: "none", border: "none", color: "#ccc", cursor: "pointer", fontSize: 18, padding: 0 }}>×</button>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, fontSize: 12 }}>
-              <div><div style={{ color: "#888", fontSize: 10 }}>entry</div><div style={{ fontWeight: 500 }}>${p.entry.toFixed(2)}</div></div>
-              <div><div style={{ color: "#888", fontSize: 10 }}>current</div><div style={{ fontWeight: 500 }}>${p.current.toFixed(2)}</div></div>
-              <div><div style={{ color: "#888", fontSize: 10 }}>p&l</div><div style={{ fontWeight: 600, color: pnl >= 0 ? "#10b981" : "#ef4444" }}>{pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} ({pct}%)</div></div>
-            </div>
-          </div>
-        );
-      })}
-      {adding ? (
-        <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #6366f1", padding: "1rem", marginBottom: 8 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-            {[["ticker","RKLB"],["shares","100"],["entry $","12.50"],["current $","18.20"]].map(([label, ph], idx) => (
-              <div key={label}>
-                <div style={{ fontSize: 10, color: "#888", marginBottom: 2 }}>{label}</div>
-                <input placeholder={ph} value={form[["ticker","shares","entry","current"][idx]]} onChange={e => setForm({ ...form, [["ticker","shares","entry","current"][idx]]: e.target.value })} style={{ width: "100%", padding: "6px 8px", borderRadius: 8, border: "0.5px solid #e5e7eb", fontSize: 13, boxSizing: "border-box" }} />
+
+      <div style={styles.card}>
+        <div style={styles.sectionTitle}>Recent Alerts ({alerts.length})</div>
+        {alerts.length === 0 ? (
+          <div style={styles.empty}>No alert-level contracts yet (score ≥ 70)</div>
+        ) : (
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                {["Level", "Score", "Title", "Likely Winner", "Value", "Triggered"].map((h) => (
+                  <th key={h} style={styles.th}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {alerts.map((c) => (
+                <tr key={c.id}>
+                  <td style={styles.td}>
+                    <span style={styles.badge(c.alertType === "CRITICAL" ? "#ff4444" : "#ffcc00")}>
+                      {c.alertType}
+                    </span>
+                  </td>
+                  <td style={styles.td}><ScoreBadge score={c.score} /></td>
+                  <td style={{ ...styles.td, maxWidth: "280px", color: "#c0d8e8" }}>
+                    {c.title?.slice(0, 70)}{c.title?.length > 70 ? "…" : ""}
+                  </td>
+                  <td style={styles.td}>
+                    {c.likely_winner ? (
+                      <span style={styles.badge("#00aaff")}>{c.likely_winner}</span>
+                    ) : "—"}
+                  </td>
+                  <td style={{ ...styles.td, color: "#ffcc00" }}>{formatCurrency(c.value)}</td>
+                  <td style={{ ...styles.td, color: "#4a6680", fontSize: "11px" }}>
+                    {formatDate(c.created_at)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Manage Tab ───────────────────────────────────────────────────────────────
+
+function ManageTab({ contracts, onRefresh }) {
+  const [status, setStatus] = useState(null);
+
+  const testSupabase = async () => {
+    setStatus("Testing Supabase connection...");
+    try {
+      const { count, error } = await supabase
+        .from("contracts")
+        .select("*", { count: "exact", head: true });
+      if (error) setStatus(`❌ Supabase error: ${error.message}`);
+      else setStatus(`✅ Supabase connected — ${count} contracts in DB`);
+    } catch (e) {
+      setStatus(`❌ Connection failed: ${e.message}`);
+    }
+  };
+
+  return (
+    <div style={styles.page}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+        <div style={styles.card}>
+          <div style={styles.sectionTitle}>System Status</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {[
+              { label: "Scanner", value: "Railway — disciplined-friendship", color: "#00ff88" },
+              { label: "Database", value: "Supabase — nkufqvyvhmfazftcsgga", color: "#00ff88" },
+              { label: "Alerts", value: "Gmail — active", color: "#00ff88" },
+              { label: "Scan Interval", value: "Every 90 min (7am–7pm CST)", color: "#ffcc00" },
+              { label: "Total Scanned", value: `${contracts.length} contracts`, color: "#e0e8f0" },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
+                <span style={{ color: "#4a6680" }}>{label}</span>
+                <span style={{ color }}>{value}</span>
               </div>
             ))}
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={addPosition} style={{ flex: 1, background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, padding: "8px", fontSize: 13, cursor: "pointer" }}>Add</button>
-            <button onClick={() => setAdding(false)} style={{ flex: 1, background: "#f3f4f6", color: "#444", border: "none", borderRadius: 8, padding: "8px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
-          </div>
         </div>
-      ) : (
-        <button onClick={() => setAdding(true)} style={{ width: "100%", padding: "10px", borderRadius: 12, border: "0.5px dashed #d1d5db", background: "none", color: "#6366f1", fontSize: 13, cursor: "pointer" }}>+ add position</button>
-      )}
-    </div>
-  );
-}
 
-function Alerts({ contracts, stocks }) {
-  const alerts = [...contracts].sort((a, b) => b.score - a.score).slice(0, 20);
-  return (
-    <div style={{ padding: "1rem" }}>
-      <div style={{ fontSize: 11, color: "#888", marginBottom: 12 }}>all alerts sorted by significance score</div>
-      {alerts.length === 0 && (
-        <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", padding: "2rem", textAlign: "center" }}>
-          <div style={{ fontSize: 13, color: "#888" }}>No alerts yet. Scanner runs every 90 min during business hours.</div>
-        </div>
-      )}
-      {alerts.map((c, i) => (
-        <div key={i} style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", padding: "0.75rem 1rem", marginBottom: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-            <div style={{ display: "flex", gap: 5 }}>
-              {c.tickers?.split(",").slice(0, 2).map(t => {
-                const s = stocks.find(x => x.ticker === t.trim());
-                return <Badge key={t} text={t.trim()} color={s?.color || "#888"} />;
-              })}
-            </div>
-            <span style={{ fontSize: 11, fontWeight: 700, color: scoreColor(c.score) }}>{c.score}/10</span>
+        <div style={styles.card}>
+          <div style={styles.sectionTitle}>Actions</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <button style={styles.btn("primary")} onClick={onRefresh}>
+              ↻ Refresh Contracts
+            </button>
+            <button style={styles.btn("primary")} onClick={testSupabase}>
+              ⚡ Test Supabase Connection
+            </button>
+            {status && (
+              <div style={{
+                marginTop: "8px", padding: "10px", background: "#111827",
+                borderRadius: "4px", fontSize: "12px",
+                color: status.includes("✅") ? "#00ff88" : "#ff4444",
+              }}>
+                {status}
+              </div>
+            )}
           </div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "#111", lineHeight: 1.4, marginBottom: 4 }}>{c.headline || c.title}</div>
-          <div style={{ fontSize: 11, color: impactColor(c.stock_impact) }}>{c.stock_impact}</div>
         </div>
-      ))}
-    </div>
-  );
-}
 
-function Manage({ stocks, onUpdate }) {
-  const [form, setForm] = useState({ ticker: "", name: "", color: COLORS[0] });
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState("");
-  const addStock = async () => {
-    if (!form.ticker) return;
-    setSaving(true);
-    await supabase.post("watched_stocks", { ticker: form.ticker.toUpperCase(), name: form.name || form.ticker.toUpperCase(), color: form.color });
-    setForm({ ticker: "", name: "", color: COLORS[Math.floor(Math.random() * COLORS.length)] });
-    setMsg("Stock added!");
-    setTimeout(() => setMsg(""), 2000);
-    setSaving(false);
-    onUpdate();
-  };
-  const removeStock = async (ticker) => {
-    await supabase.delete("watched_stocks", `ticker=eq.${ticker}`);
-    onUpdate();
-  };
-  return (
-    <div style={{ padding: "1rem" }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: "#111", marginBottom: 12 }}>Watched Stocks</div>
-      {stocks.map(s => (
-        <div key={s.ticker} style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", padding: "0.75rem 1rem", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 10, height: 10, borderRadius: "50%", background: s.color }} />
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{s.ticker}</div>
-              <div style={{ fontSize: 11, color: "#888" }}>{s.name}</div>
-            </div>
-          </div>
-          <button onClick={() => removeStock(s.ticker)} style={{ background: "#fee2e2", border: "none", color: "#ef4444", borderRadius: 8, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}>Remove</button>
-        </div>
-      ))}
-      <div style={{ fontSize: 13, fontWeight: 600, color: "#111", margin: "1.25rem 0 10px" }}>Add Stock</div>
-      <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", padding: "1rem" }}>
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>ticker</div>
-          <input placeholder="e.g. PLTR" value={form.ticker} onChange={e => setForm({ ...form, ticker: e.target.value.toUpperCase() })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "0.5px solid #e5e7eb", fontSize: 13, boxSizing: "border-box" }} />
-        </div>
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>company name</div>
-          <input placeholder="e.g. Palantir" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "0.5px solid #e5e7eb", fontSize: 13, boxSizing: "border-box" }} />
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>color</div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {COLORS.map(c => (
-              <div key={c} onClick={() => setForm({ ...form, color: c })} style={{ width: 24, height: 24, borderRadius: "50%", background: c, cursor: "pointer", border: form.color === c ? "2px solid #111" : "2px solid transparent" }} />
+        <div style={styles.card}>
+          <div style={styles.sectionTitle}>Watched Stocks</div>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            {WATCHED_STOCKS.map((s) => (
+              <span key={s} style={{ ...styles.badge("#00aaff"), fontSize: "13px", padding: "4px 12px" }}>
+                {s}
+              </span>
             ))}
           </div>
+          <div style={{ marginTop: "12px", fontSize: "11px", color: "#2a3d50" }}>
+            Edit WATCHED_STOCKS in App.js to add/remove tickers.
+          </div>
         </div>
-        <button onClick={addStock} disabled={saving || !form.ticker} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "none", background: "#6366f1", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: saving || !form.ticker ? 0.6 : 1 }}>
-          {saving ? "Adding..." : "Add Stock"}
-        </button>
-        {msg && <div style={{ fontSize: 12, color: "#10b981", textAlign: "center", marginTop: 8 }}>{msg}</div>}
-      </div>
-      <div style={{ fontSize: 11, color: "#888", marginTop: "1rem", lineHeight: 1.6 }}>
-        Note: Adding a stock here updates the dashboard display. To scan for new contracts, also add the keyword to scanner.py and redeploy.
+
+        <div style={styles.card}>
+          <div style={styles.sectionTitle}>Score Legend</div>
+          {[
+            { range: "80–100", label: "Strong Buy Signal", color: "#00ff88" },
+            { range: "60–79", label: "Watch Closely", color: "#ffcc00" },
+            { range: "40–59", label: "Low Priority", color: "#ff8800" },
+            { range: "0–39", label: "Skip", color: "#ff4444" },
+          ].map(({ range, label, color }) => (
+            <div key={range} style={{ display: "flex", gap: "12px", alignItems: "center", marginBottom: "8px" }}>
+              <span style={{ ...styles.badge(color), minWidth: "60px", textAlign: "center" }}>{range}</span>
+              <span style={{ fontSize: "12px", color: "#8ab0cc" }}>{label}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
+
+// ─── App Root ─────────────────────────────────────────────────────────────────
+
+const TABS = ["Dashboard", "Contracts", "Portfolio", "Alerts", "Manage"];
 
 export default function App() {
-  const [tab, setTab] = useState("Dashboard");
+  const [activeTab, setActiveTab] = useState("Dashboard");
   const [contracts, setContracts] = useState([]);
-  const [stocks, setStocks] = useState(DEFAULT_STOCKS);
   const [loading, setLoading] = useState(true);
+  const [lastFetch, setLastFetch] = useState(null);
 
-  const loadStocks = () => {
-    supabase.get("watched_stocks", "select=*&order=created_at.asc")
-      .then(data => { if (Array.isArray(data) && data.length > 0) setStocks(data); })
-      .catch(() => {});
-  };
-
-  useEffect(() => {
-    loadStocks();
-    supabase.get("contracts", "select=*&order=created_at.desc&limit=200")
-      .then(data => { setContracts(Array.isArray(data) ? data : []); setLoading(false); })
-      .catch(() => setLoading(false));
+  const fetchContracts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("contracts")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(500);
+      if (!error && data) {
+        setContracts(data);
+        setLastFetch(new Date());
+      }
+    } catch (e) {
+      console.error("Supabase fetch error:", e);
+    }
+    setLoading(false);
   }, []);
 
-  const topContracts = [...contracts].sort((a, b) => b.score - a.score).slice(0, 3);
+  useEffect(() => {
+    fetchContracts();
+  }, [fetchContracts]);
+
+  const renderTab = () => {
+    switch (activeTab) {
+      case "Dashboard": return <DashboardTab contracts={contracts} />;
+      case "Contracts": return <ContractsTab contracts={contracts} loading={loading} />;
+      case "Portfolio": return <PortfolioTab contracts={contracts} />;
+      case "Alerts": return <AlertsTab contracts={contracts} />;
+      case "Manage": return <ManageTab contracts={contracts} onRefresh={fetchContracts} />;
+      default: return null;
+    }
+  };
 
   return (
-    <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", background: "#f8f9fa", minHeight: "100vh", maxWidth: 430, margin: "0 auto" }}>
-      <div style={{ background: "#fff", borderBottom: "0.5px solid #e5e7eb", padding: "0.75rem 1rem", position: "sticky", top: 0, zIndex: 10 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: "#111", marginBottom: 8 }}>Trading Intel</div>
-        <TabBar tabs={TABS} active={tab} onSelect={setTab} />
+    <div style={styles.app}>
+      <div style={styles.header}>
+        <div>
+          <div style={styles.logo}>⬡ TRADING INTEL</div>
+          <div style={styles.logoSub}>SAM.gov Intelligence Platform</div>
+        </div>
+        <div style={{ marginLeft: "auto", fontSize: "11px", color: "#2a3d50" }}>
+          {loading ? "SYNCING..." : lastFetch ? `Updated ${lastFetch.toLocaleTimeString()}` : ""}
+        </div>
       </div>
 
-      {tab === "Dashboard" && (
-        <div style={{ padding: "1rem" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: "1rem" }}>
-            {[
-              ["Total Contracts", contracts.length],
-              ["High Score 8+", contracts.filter(c => c.score >= 8).length],
-              ["Positive Impact", contracts.filter(c => c.stock_impact?.includes("POSITIVE")).length],
-              ["Sectors Active", new Set(contracts.flatMap(c => c.sectors?.split(",") || [])).size],
-            ].map(([label, val]) => (
-              <div key={label} style={{ background: "#fff", borderRadius: 12, padding: "0.75rem 1rem", border: "0.5px solid #e5e7eb" }}>
-                <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>{label}</div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: "#111" }}>{val}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#111", marginBottom: 8 }}>Top Contracts</div>
-          {loading && <div style={{ fontSize: 13, color: "#888", textAlign: "center", padding: "2rem" }}>Loading...</div>}
-          {!loading && topContracts.length === 0 && (
-            <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", padding: "1.5rem", textAlign: "center" }}>
-              <div style={{ fontSize: 13, color: "#888" }}>No contracts yet. Scanner runs every 90 min during business hours (7am–7pm CST).</div>
-            </div>
-          )}
-          {topContracts.map((c, i) => <ContractCard key={i} contract={c} stocks={stocks} />)}
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#111", margin: "1rem 0 8px" }}>Watching</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {stocks.map(s => (
-              <div key={s.ticker} style={{ background: s.color + "15", border: `0.5px solid ${s.color}40`, borderRadius: 20, padding: "4px 12px", fontSize: 12, fontWeight: 600, color: s.color }}>{s.ticker}</div>
-            ))}
-          </div>
-        </div>
-      )}
+      <div style={styles.nav}>
+        {TABS.map((tab) => (
+          <button
+            key={tab}
+            style={styles.navBtn(activeTab === tab)}
+            onClick={() => setActiveTab(tab)}
+          >
+            {tab.toUpperCase()}
+          </button>
+        ))}
+      </div>
 
-      {tab === "Contracts" && <Contracts contracts={contracts} stocks={stocks} loading={loading} />}
-      {tab === "Portfolio" && <Portfolio />}
-      {tab === "Alerts" && <Alerts contracts={contracts} stocks={stocks} />}
-      {tab === "Manage" && <Manage stocks={stocks} onUpdate={loadStocks} />}
+      {renderTab()}
     </div>
   );
 }
