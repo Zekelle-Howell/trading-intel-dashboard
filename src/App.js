@@ -12,9 +12,7 @@ const DEFAULT_STOCKS = [
 ];
 
 const COLORS = ["#6366f1","#0ea5e9","#f59e0b","#10b981","#ec4899","#ef4444","#8b5cf6","#14b8a6","#f97316","#06b6d4"];
-
 const SECTORS = ["Space","Defense","Oil & Gas","Nuclear","Infrastructure","AI & Tech","Healthcare","Mining"];
-
 const TABS = ["Dashboard","Contracts","Portfolio","Alerts","Manage"];
 
 const supabase = {
@@ -42,6 +40,8 @@ const contractMatchesSector = (contract, sector) => {
   const text = ((contract.title || "") + " " + (contract.sectors || "") + " " + (contract.agency || "")).toLowerCase();
   return SECTOR_KEYWORDS[sector]?.some(k => text.includes(k));
 };
+
+// ── COMPONENTS ────────────────────────────────────────────────────────────────
 
 function Badge({ text, color }) {
   return <span style={{ fontSize: 10, fontWeight: 700, color, background: color + "18", padding: "2px 7px", borderRadius: 6 }}>{text}</span>;
@@ -116,6 +116,8 @@ function Contracts({ contracts, stocks, loading }) {
     return 0;
   });
 
+  const hasActiveFilters = sectorFilter !== "All" || minScore > 0 || impactFilter !== "All" || sortBy !== "score";
+
   return (
     <div style={{ padding: "1rem" }}>
       <div style={{ display: "flex", gap: 5, overflowX: "auto", paddingBottom: 8, marginBottom: 8 }}>
@@ -123,8 +125,9 @@ function Contracts({ contracts, stocks, loading }) {
           <button key={t} onClick={() => setTickerFilter(t)} style={{ padding: "4px 10px", borderRadius: 20, border: "0.5px solid", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap", background: tickerFilter === t ? "#111" : "#fff", color: tickerFilter === t ? "#fff" : "#555", borderColor: tickerFilter === t ? "#111" : "#e5e7eb" }}>{t}</button>
         ))}
       </div>
-      <button onClick={() => setShowFilters(!showFilters)} style={{ width: "100%", padding: "8px", borderRadius: 10, border: "0.5px solid #e5e7eb", background: showFilters ? "#f3f4f6" : "#fff", fontSize: 12, color: "#555", cursor: "pointer", marginBottom: 10, textAlign: "left" }}>
-        {showFilters ? "▲" : "▼"} filters & sort {(sectorFilter !== "All" || minScore > 0 || impactFilter !== "All" || sortBy !== "score") ? "●" : ""}
+      <button onClick={() => setShowFilters(!showFilters)} style={{ width: "100%", padding: "8px 12px", borderRadius: 10, border: "0.5px solid #e5e7eb", background: showFilters ? "#f3f4f6" : "#fff", fontSize: 12, color: "#555", cursor: "pointer", marginBottom: 10, textAlign: "left", display: "flex", justifyContent: "space-between" }}>
+        <span>{showFilters ? "▲" : "▼"} filters & sort</span>
+        {hasActiveFilters && <span style={{ color: "#6366f1", fontWeight: 600 }}>active</span>}
       </button>
       {showFilters && (
         <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", padding: "0.75rem 1rem", marginBottom: 12 }}>
@@ -329,11 +332,13 @@ function Manage({ stocks, onUpdate }) {
         {msg && <div style={{ fontSize: 12, color: "#10b981", textAlign: "center", marginTop: 8 }}>{msg}</div>}
       </div>
       <div style={{ fontSize: 11, color: "#888", marginTop: "1rem", lineHeight: 1.6 }}>
-        Note: Adding a stock here updates the dashboard display. To scan for new contracts, also add the keyword to scanner.py and redeploy.
+        Note: Adding a stock here updates the dashboard. To scan for contracts, also add the keyword to scanner.py and redeploy to Railway.
       </div>
     </div>
   );
 }
+
+// ── MAIN APP ──────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [tab, setTab] = useState("Dashboard");
