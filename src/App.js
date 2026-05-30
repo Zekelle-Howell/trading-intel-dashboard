@@ -41,8 +41,6 @@ const contractMatchesSector = (contract, sector) => {
   return SECTOR_KEYWORDS[sector]?.some(k => text.includes(k));
 };
 
-// ── COMPONENTS ────────────────────────────────────────────────────────────────
-
 function Badge({ text, color }) {
   return <span style={{ fontSize: 10, fontWeight: 700, color, background: color + "18", padding: "2px 7px", borderRadius: 6 }}>{text}</span>;
 }
@@ -60,15 +58,17 @@ function TabBar({ tabs, active, onSelect }) {
 function ContractCard({ contract, stocks }) {
   const [expanded, setExpanded] = useState(false);
   const days = daysLeft(contract.deadline);
+  // match tickers from title/agency text against watched stocks
+  const matchedStocks = stocks.filter(s =>
+    (contract.title || "").toLowerCase().includes(s.name.toLowerCase()) ||
+    (contract.tickers || "").includes(s.ticker)
+  );
   return (
     <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", marginBottom: 10, overflow: "hidden" }}>
       <div style={{ padding: "0.75rem 1rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-            {contract.tickers?.split(",").map(t => {
-              const s = stocks.find(x => x.ticker === t.trim());
-              return <Badge key={t} text={t.trim()} color={s?.color || "#888"} />;
-            })}
+            {matchedStocks.map(s => <Badge key={s.ticker} text={s.ticker} color={s.color} />)}
           </div>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: scoreColor(contract.score) }}>{contract.score}/10</span>
@@ -97,15 +97,15 @@ function ContractCard({ contract, stocks }) {
 }
 
 function Contracts({ contracts, stocks, loading }) {
-  const [tickerFilter, setTickerFilter] = useState("All");
   const [sectorFilter, setSectorFilter] = useState("All");
   const [sortBy, setSortBy] = useState("score");
   const [minScore, setMinScore] = useState(0);
   const [impactFilter, setImpactFilter] = useState("All");
   const [showFilters, setShowFilters] = useState(false);
+  const [search, setSearch] = useState("");
 
   let filtered = contracts;
-  if (tickerFilter !== "All") filtered = filtered.filter(c => c.tickers?.includes(tickerFilter));
+  if (search) filtered = filtered.filter(c => (c.title || "").toLowerCase().includes(search.toLowerCase()) || (c.agency || "").toLowerCase().includes(search.toLowerCase()));
   if (sectorFilter !== "All") filtered = filtered.filter(c => contractMatchesSector(c, sectorFilter));
   if (minScore > 0) filtered = filtered.filter(c => c.score >= minScore);
   if (impactFilter !== "All") filtered = filtered.filter(c => c.stock_impact?.includes(impactFilter));
@@ -120,11 +120,12 @@ function Contracts({ contracts, stocks, loading }) {
 
   return (
     <div style={{ padding: "1rem" }}>
-      <div style={{ display: "flex", gap: 5, overflowX: "auto", paddingBottom: 8, marginBottom: 8 }}>
-        {["All", ...stocks.map(s => s.ticker)].map(t => (
-          <button key={t} onClick={() => setTickerFilter(t)} style={{ padding: "4px 10px", borderRadius: 20, border: "0.5px solid", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap", background: tickerFilter === t ? "#111" : "#fff", color: tickerFilter === t ? "#fff" : "#555", borderColor: tickerFilter === t ? "#111" : "#e5e7eb" }}>{t}</button>
-        ))}
-      </div>
+      <input
+        placeholder="Search title or agency..."
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        style={{ width: "100%", padding: "8px 12px", borderRadius: 10, border: "0.5px solid #e5e7eb", fontSize: 12, marginBottom: 10, boxSizing: "border-box" }}
+      />
       <button onClick={() => setShowFilters(!showFilters)} style={{ width: "100%", padding: "8px 12px", borderRadius: 10, border: "0.5px solid #e5e7eb", background: showFilters ? "#f3f4f6" : "#fff", fontSize: 12, color: "#555", cursor: "pointer", marginBottom: 10, textAlign: "left", display: "flex", justifyContent: "space-between" }}>
         <span>{showFilters ? "▲" : "▼"} filters & sort</span>
         {hasActiveFilters && <span style={{ color: "#6366f1", fontWeight: 600 }}>active</span>}
@@ -166,7 +167,7 @@ function Contracts({ contracts, stocks, loading }) {
       {loading && <div style={{ fontSize: 13, color: "#888", textAlign: "center", padding: "2rem" }}>Loading...</div>}
       {!loading && filtered.length === 0 && (
         <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", padding: "2rem", textAlign: "center" }}>
-          <div style={{ fontSize: 13, color: "#888" }}>No contracts match your filters. Scanner runs every 90 min during business hours (7am–7pm CST).</div>
+          <div style={{ fontSize: 13, color: "#888" }}>No contracts match your filters.</div>
         </div>
       )}
       {filtered.map((c, i) => <ContractCard key={i} contract={c} stocks={stocks} />)}
@@ -250,7 +251,7 @@ function Alerts({ contracts, stocks }) {
   const alerts = [...contracts].sort((a, b) => b.score - a.score).slice(0, 20);
   return (
     <div style={{ padding: "1rem" }}>
-      <div style={{ fontSize: 11, color: "#888", marginBottom: 12 }}>all alerts sorted by significance score</div>
+      <div style={{ fontSize: 11, color: "#888", marginBottom: 12 }}>top contracts by score — all sectors</div>
       {alerts.length === 0 && (
         <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", padding: "2rem", textAlign: "center" }}>
           <div style={{ fontSize: 13, color: "#888" }}>No alerts yet. Scanner runs every 90 min during business hours.</div>
@@ -259,16 +260,12 @@ function Alerts({ contracts, stocks }) {
       {alerts.map((c, i) => (
         <div key={i} style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", padding: "0.75rem 1rem", marginBottom: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-            <div style={{ display: "flex", gap: 5 }}>
-              {c.tickers?.split(",").slice(0, 2).map(t => {
-                const s = stocks.find(x => x.ticker === t.trim());
-                return <Badge key={t} text={t.trim()} color={s?.color || "#888"} />;
-              })}
-            </div>
-            <span style={{ fontSize: 11, fontWeight: 700, color: scoreColor(c.score) }}>{c.score}/10</span>
+            <span style={{ fontSize: 11, color: "#888" }}>{c.agency?.slice(0, 40)}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: scoreColor(c.score) }}>{c.score}/10</span>
           </div>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#111", lineHeight: 1.4, marginBottom: 4 }}>{c.headline || c.title}</div>
           <div style={{ fontSize: 11, color: impactColor(c.stock_impact) }}>{c.stock_impact}</div>
+          {c.likely_winner && <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>Winner: {c.likely_winner?.slice(0, 80)}</div>}
         </div>
       ))}
     </div>
@@ -331,14 +328,9 @@ function Manage({ stocks, onUpdate }) {
         </button>
         {msg && <div style={{ fontSize: 12, color: "#10b981", textAlign: "center", marginTop: 8 }}>{msg}</div>}
       </div>
-      <div style={{ fontSize: 11, color: "#888", marginTop: "1rem", lineHeight: 1.6 }}>
-        Note: Adding a stock here updates the dashboard. To scan for contracts, also add the keyword to scanner.py and redeploy to Railway.
-      </div>
     </div>
   );
 }
-
-// ── MAIN APP ──────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [tab, setTab] = useState("Dashboard");
@@ -375,7 +367,7 @@ export default function App() {
               ["Total Contracts", contracts.length],
               ["High Score 8+", contracts.filter(c => c.score >= 8).length],
               ["Positive Impact", contracts.filter(c => c.stock_impact?.includes("POSITIVE")).length],
-              ["Sectors Active", new Set(contracts.flatMap(c => c.sectors?.split(",") || [])).size],
+              ["Score 6+", contracts.filter(c => c.score >= 6).length],
             ].map(([label, val]) => (
               <div key={label} style={{ background: "#fff", borderRadius: 12, padding: "0.75rem 1rem", border: "0.5px solid #e5e7eb" }}>
                 <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>{label}</div>
