@@ -36,6 +36,7 @@ const scoreColor = s => s >= 8 ? "#ef4444" : s >= 6 ? "#f59e0b" : "#10b981";
 const impactColor = i => !i ? "#888" : i.includes("STRONG POSITIVE") ? "#10b981" : i.includes("POSITIVE") ? "#34d399" : i.includes("NEGATIVE") ? "#ef4444" : "#888";
 const daysLeft = d => { if (!d) return null; return Math.ceil((new Date(d) - new Date()) / 86400000); };
 const daysColor = d => d === null ? "#888" : d <= 3 ? "#ef4444" : d <= 7 ? "#f59e0b" : "#10b981";
+const isExpired = c => { const d = daysLeft(c.deadline); return d !== null && d < 0; };
 const contractMatchesSector = (contract, sector) => {
   const text = ((contract.title || "") + " " + (contract.sectors || "") + " " + (contract.agency || "")).toLowerCase();
   return SECTOR_KEYWORDS[sector]?.some(k => text.includes(k));
@@ -58,7 +59,6 @@ function TabBar({ tabs, active, onSelect }) {
 function ContractCard({ contract, stocks }) {
   const [expanded, setExpanded] = useState(false);
   const days = daysLeft(contract.deadline);
-  // match tickers from title/agency text against watched stocks
   const matchedStocks = stocks.filter(s =>
     (contract.title || "").toLowerCase().includes(s.name.toLowerCase()) ||
     (contract.tickers || "").includes(s.ticker)
@@ -103,8 +103,10 @@ function Contracts({ contracts, stocks, loading }) {
   const [impactFilter, setImpactFilter] = useState("All");
   const [showFilters, setShowFilters] = useState(false);
   const [search, setSearch] = useState("");
+  const [hideExpired, setHideExpired] = useState(true);
 
   let filtered = contracts;
+  if (hideExpired) filtered = filtered.filter(c => !isExpired(c));
   if (search) filtered = filtered.filter(c => (c.title || "").toLowerCase().includes(search.toLowerCase()) || (c.agency || "").toLowerCase().includes(search.toLowerCase()));
   if (sectorFilter !== "All") filtered = filtered.filter(c => contractMatchesSector(c, sectorFilter));
   if (minScore > 0) filtered = filtered.filter(c => c.score >= minScore);
@@ -117,6 +119,7 @@ function Contracts({ contracts, stocks, loading }) {
   });
 
   const hasActiveFilters = sectorFilter !== "All" || minScore > 0 || impactFilter !== "All" || sortBy !== "score";
+  const expiredCount = contracts.filter(c => isExpired(c)).length;
 
   return (
     <div style={{ padding: "1rem" }}>
@@ -126,10 +129,15 @@ function Contracts({ contracts, stocks, loading }) {
         onChange={e => setSearch(e.target.value)}
         style={{ width: "100%", padding: "8px 12px", borderRadius: 10, border: "0.5px solid #e5e7eb", fontSize: 12, marginBottom: 10, boxSizing: "border-box" }}
       />
-      <button onClick={() => setShowFilters(!showFilters)} style={{ width: "100%", padding: "8px 12px", borderRadius: 10, border: "0.5px solid #e5e7eb", background: showFilters ? "#f3f4f6" : "#fff", fontSize: 12, color: "#555", cursor: "pointer", marginBottom: 10, textAlign: "left", display: "flex", justifyContent: "space-between" }}>
-        <span>{showFilters ? "▲" : "▼"} filters & sort</span>
-        {hasActiveFilters && <span style={{ color: "#6366f1", fontWeight: 600 }}>active</span>}
-      </button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <button onClick={() => setShowFilters(!showFilters)} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: "0.5px solid #e5e7eb", background: showFilters ? "#f3f4f6" : "#fff", fontSize: 12, color: "#555", cursor: "pointer", textAlign: "left", display: "flex", justifyContent: "space-between", marginRight: 8 }}>
+          <span>{showFilters ? "▲" : "▼"} filters & sort</span>
+          {hasActiveFilters && <span style={{ color: "#6366f1", fontWeight: 600 }}>active</span>}
+        </button>
+        <button onClick={() => setHideExpired(!hideExpired)} style={{ padding: "8px 12px", borderRadius: 10, border: "0.5px solid #e5e7eb", background: hideExpired ? "#111" : "#fff", color: hideExpired ? "#fff" : "#555", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>
+          {hideExpired ? `✓ Hide expired (${expiredCount})` : `Show expired (${expiredCount})`}
+        </button>
+      </div>
       {showFilters && (
         <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", padding: "0.75rem 1rem", marginBottom: 12 }}>
           <div style={{ marginBottom: 12 }}>
@@ -248,10 +256,10 @@ function Portfolio() {
 }
 
 function Alerts({ contracts, stocks }) {
-  const alerts = [...contracts].sort((a, b) => b.score - a.score).slice(0, 20);
+  const alerts = [...contracts].filter(c => !isExpired(c)).sort((a, b) => b.score - a.score).slice(0, 20);
   return (
     <div style={{ padding: "1rem" }}>
-      <div style={{ fontSize: 11, color: "#888", marginBottom: 12 }}>top contracts by score — all sectors</div>
+      <div style={{ fontSize: 11, color: "#888", marginBottom: 12 }}>top active contracts by score — expired hidden</div>
       {alerts.length === 0 && (
         <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", padding: "2rem", textAlign: "center" }}>
           <div style={{ fontSize: 13, color: "#888" }}>No alerts yet. Scanner runs every 90 min during business hours.</div>
@@ -351,7 +359,7 @@ export default function App() {
       .catch(() => setLoading(false));
   }, []);
 
-  const topContracts = [...contracts].sort((a, b) => b.score - a.score).slice(0, 3);
+  const topContracts = [...contracts].filter(c => !isExpired(c)).sort((a, b) => b.score - a.score).slice(0, 3);
 
   return (
     <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", background: "#f8f9fa", minHeight: "100vh", maxWidth: 430, margin: "0 auto" }}>
@@ -364,10 +372,10 @@ export default function App() {
         <div style={{ padding: "1rem" }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: "1rem" }}>
             {[
-              ["Total Contracts", contracts.length],
-              ["High Score 8+", contracts.filter(c => c.score >= 8).length],
-              ["Positive Impact", contracts.filter(c => c.stock_impact?.includes("POSITIVE")).length],
-              ["Score 6+", contracts.filter(c => c.score >= 6).length],
+              ["Active Contracts", contracts.filter(c => !isExpired(c)).length],
+              ["High Score 8+", contracts.filter(c => !isExpired(c) && c.score >= 8).length],
+              ["Positive Impact", contracts.filter(c => !isExpired(c) && c.stock_impact?.includes("POSITIVE")).length],
+              ["Score 6+", contracts.filter(c => !isExpired(c) && c.score >= 6).length],
             ].map(([label, val]) => (
               <div key={label} style={{ background: "#fff", borderRadius: 12, padding: "0.75rem 1rem", border: "0.5px solid #e5e7eb" }}>
                 <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>{label}</div>
@@ -375,11 +383,11 @@ export default function App() {
               </div>
             ))}
           </div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#111", marginBottom: 8 }}>Top Contracts</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#111", marginBottom: 8 }}>Top Active Contracts</div>
           {loading && <div style={{ fontSize: 13, color: "#888", textAlign: "center", padding: "2rem" }}>Loading...</div>}
           {!loading && topContracts.length === 0 && (
             <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e5e7eb", padding: "1.5rem", textAlign: "center" }}>
-              <div style={{ fontSize: 13, color: "#888" }}>No contracts yet. Scanner runs every 90 min during business hours (7am–7pm CST).</div>
+              <div style={{ fontSize: 13, color: "#888" }}>No active contracts yet. Scanner runs every 90 min (7am–7pm CST).</div>
             </div>
           )}
           {topContracts.map((c, i) => <ContractCard key={i} contract={c} stocks={stocks} />)}
