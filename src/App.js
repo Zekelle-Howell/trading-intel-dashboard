@@ -62,14 +62,12 @@ function ContractCard({ contract, stocks }) {
   const [expanded, setExpanded] = useState(false);
   const days = daysLeft(contract.deadline);
 
-  // Match watched stocks
   const matchedStocks = stocks.filter(s =>
     (contract.title || "").toLowerCase().includes(s.name.toLowerCase()) ||
     (contract.tickers || "").includes(s.ticker) ||
     (contract.public_tickers || "").includes(s.ticker)
   );
 
-  // Parse public tickers for display
   const publicTickers = (contract.public_tickers || "")
     .split(",")
     .map(t => t.trim())
@@ -210,9 +208,9 @@ function Contracts({ contracts, stocks, loading }) {
 
 function Portfolio() {
   const [positions, setPositions] = useState([
-    { ticker: "RKLB", shares: 100, entry: 12.50, current: 18.20 },
-    { ticker: "LUNR", shares: 200, entry: 8.00,  current: 6.40 },
-    { ticker: "ASTS", shares: 50,  entry: 22.00, current: 31.50 },
+    { ticker: "JNJ",  shares: 15,  entry: 220.00, current: 265.77 },
+    { ticker: "KO",   shares: 40,  entry: 75.00,  current: 86.85  },
+    { ticker: "PG",   shares: 20,  entry: 140.00, current: 155.20 },
   ]);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ ticker: "", shares: "", entry: "", current: "" });
@@ -248,7 +246,6 @@ function Portfolio() {
                 <span style={{ fontWeight: 600, fontSize: 14 }}>{p.ticker}</span>
                 <span style={{ fontSize: 11, color: "#888" }}>{p.shares} shares</span>
               </div>
-              <button onClick={() => setPositions(positions.filter((_, idx) => idx !== i))} style={{ background: "none", border: "none", color: "#ccc", cursor: "pointer", fontSize: 18, padding: 0 }}>×</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, fontSize: 12 }}>
               <div><div style={{ color: "#888", fontSize: 10 }}>entry</div><div style={{ fontWeight: 500 }}>${p.entry.toFixed(2)}</div></div>
@@ -261,7 +258,7 @@ function Portfolio() {
       {adding ? (
         <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #6366f1", padding: "1rem", marginBottom: 8 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-            {[["ticker","RKLB"],["shares","100"],["entry $","12.50"],["current $","18.20"]].map(([label, ph], idx) => (
+            {[["ticker","JNJ"],["shares","15"],["entry $","220.00"],["current $","265.77"]].map(([label, ph], idx) => (
               <div key={label}>
                 <div style={{ fontSize: 10, color: "#888", marginBottom: 2 }}>{label}</div>
                 <input placeholder={ph} value={form[["ticker","shares","entry","current"][idx]]} onChange={e => setForm({ ...form, [["ticker","shares","entry","current"][idx]]: e.target.value })} style={{ width: "100%", padding: "6px 8px", borderRadius: 8, border: "0.5px solid #e5e7eb", fontSize: 13, boxSizing: "border-box" }} />
