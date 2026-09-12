@@ -13,7 +13,7 @@ const DEFAULT_STOCKS = [
 
 const COLORS = ["#6366f1","#0ea5e9","#f59e0b","#10b981","#ec4899","#ef4444","#8b5cf6","#14b8a6","#f97316","#06b6d4"];
 const SECTORS = ["Space","Defense","Oil & Gas","Nuclear","Infrastructure","AI & Tech","Healthcare","Mining"];
-const TABS = ["Dashboard","Contracts","Portfolio","Alerts","Research","Manage"];
+const TABS = ["Dashboard","Contracts","Research","Alerts","Portfolio","Manage"];
 
 const supabase = {
   get: (table, query = "") => fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }).then(r => r.json()),
@@ -82,6 +82,7 @@ function ResearchTab() {
       </div>
 
       {/* Section nav */}
+      <div style={{ fontSize: 10, color: "#888", marginBottom: 6, letterSpacing: "0.05em" }}>JUMP TO SECTION:</div>
       <div style={{ display: "flex", gap: 5, overflowX: "auto", marginBottom: 16, paddingBottom: 4 }}>
         {sections.map(s => (
           <button key={s} onClick={() => setSection(s)} style={{ padding: "4px 10px", borderRadius: 20, border: "0.5px solid", fontSize: 10, cursor: "pointer", whiteSpace: "nowrap", background: section === s ? "#1F3864" : "#fff", color: section === s ? "#fff" : "#555", borderColor: section === s ? "#1F3864" : "#e5e7eb" }}>{sectionLabels[s]}</button>
@@ -325,6 +326,27 @@ function ResearchTab() {
           </div>
         </div>
       )}
+    
+      {/* Next section button */}
+      {(() => {
+        const idx = sections.indexOf(section);
+        const nextSec = sections[idx + 1];
+        const prevSec = sections[idx - 1];
+        return (
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20, paddingTop: 12, borderTop: "0.5px solid #e5e7eb" }}>
+            {prevSec ? (
+              <button onClick={() => setSection(prevSec)} style={{ padding: "8px 14px", borderRadius: 20, border: "0.5px solid #1F3864", background: "#fff", color: "#1F3864", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
+                ← {sectionLabels[prevSec]}
+              </button>
+            ) : <div />}
+            {nextSec ? (
+              <button onClick={() => setSection(nextSec)} style={{ padding: "8px 14px", borderRadius: 20, border: "none", background: "#1F3864", color: "#fff", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
+                Next: {sectionLabels[nextSec]} →
+              </button>
+            ) : <div style={{ fontSize: 11, color: "#16a34a", fontWeight: 600, alignSelf: "center" }}>✓ End of case study</div>}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -697,9 +719,9 @@ export default function App() {
       )}
 
       {tab === "Contracts" && <Contracts contracts={contracts} stocks={stocks} loading={loading} />}
-      {tab === "Portfolio" && <Portfolio />}
-      {tab === "Alerts" && <Alerts contracts={contracts} stocks={stocks} />}
       {tab === "Research" && <ResearchTab />}
+      {tab === "Alerts" && <Alerts contracts={contracts} stocks={stocks} />}
+      {tab === "Portfolio" && <Portfolio />}
       {tab === "Manage" && <Manage stocks={stocks} onUpdate={loadStocks} />}
     </div>
   );
