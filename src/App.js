@@ -631,7 +631,12 @@ function Manage({ stocks, onUpdate }) {
 }
 
 export default function App() {
-  const [tab, setTab] = useState("Dashboard");
+  const getInitialTab = () => {
+    const path = window.location.pathname.toLowerCase().replace("/", "");
+    const match = ["dashboard","contracts","portfolio","alerts","research","manage"].find(t => t === path);
+    return match ? match.charAt(0).toUpperCase() + match.slice(1) : "Dashboard";
+  };
+  const [tab, setTab] = useState(getInitialTab);
   const [contracts, setContracts] = useState([]);
   const [stocks, setStocks] = useState(DEFAULT_STOCKS);
   const [loading, setLoading] = useState(true);
