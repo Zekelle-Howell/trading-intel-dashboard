@@ -682,7 +682,10 @@ export default function App() {
   return (
     <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", background: "#f8f9fa", minHeight: "100vh", maxWidth: 430, margin: "0 auto" }}>
       <div style={{ background: "#fff", borderBottom: "0.5px solid #e5e7eb", padding: "0.75rem 1rem", position: "sticky", top: 0, zIndex: 10 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: "#111", marginBottom: 8 }}>Trading Intel</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#111" }}>Trading Intel</div>
+          <a href="https://docs.google.com/forms/d/e/1FAIpQLSezNX23BDNcKqRA77kA784dRzL5coIYp1zhwDZC_DgTGhlwPg/viewform" target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 600, color: "#6366f1", background: "#6366f118", padding: "5px 12px", borderRadius: 20, textDecoration: "none", whiteSpace: "nowrap" }}>Feedback</a>
+        </div>
         <TabBar tabs={TABS} active={tab} onSelect={setTab} />
       </div>
 
