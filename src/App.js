@@ -669,10 +669,26 @@ export default function App() {
       .catch(() => {});
   };
 
+  // Loads every contract scoring 6+ in pages of 1,000 (Supabase returns at most ~1,000 rows per request)
+  const loadAllContracts = async () => {
+    const pageSize = 1000;
+    let all = [];
+    for (let from = 0; ; from += pageSize) {
+      const page = await supabase.get(
+        "contracts",
+        `select=*&score=gte.6&order=created_at.desc&limit=${pageSize}&offset=${from}`
+      );
+      if (!Array.isArray(page)) break;
+      all = all.concat(page);
+      if (page.length < pageSize) break;
+    }
+    return all;
+  };
+
   useEffect(() => {
     loadStocks();
-    supabase.get("contracts", "select=*&order=created_at.desc&limit=200")
-      .then(data => { setContracts(Array.isArray(data) ? data : []); setLoading(false); })
+    loadAllContracts()
+      .then(data => { setContracts(data); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
 
